@@ -47,15 +47,20 @@ export function replayFetchEnd(targetDate, interval) {
 export function useReplayData({ paneId, source, symbol, interval, enabled, chartRef, ready, onPrice, onLoading, coverSince }) {
   const { clock, targetDate, endTs, registerPane, unregisterPane } = useReplay();
   const activeTargetDate = targetDate ?? endTs;
-  // When the user has advanced the clock past the original targetDate (e.g. played
-  // forward for a while and then switched timeframes), anchor the fetch window on the
-  // CURRENT clock position rather than the original start date. Without this, a
-  // fine-grained interval computes a fetchEnd that ends before the current clock,
-  // causing the ReplayProvider to clamp the clock backwards to the new range.end —
-  // which makes the chart jump to an earlier date on every timeframe switch.
-  const fetchAnchor = clock != null && activeTargetDate != null && clock > activeTargetDate
-    ? clock
-    : activeTargetDate;
+  // Always anchor the fetch window on the current clock when it is available.
+  // This covers two cases:
+  //   1. No targetDate set (user entered replay by clicking "Replay" and
+  //      navigated by stepping/playing): activeTargetDate is null, so the old
+  //      code fell back to null → replayFetchEnd returned null → latest bars
+  //      were fetched. The new pane's maxTime pointed to today, range.start
+  //      jumped ~45 days back, and the clock (still on e.g. April 4th) got
+  //      clamped backward to that new range.start — the "chart goes backward
+  //      on timeframe switch" bug.
+  //   2. User played forward past the original targetDate: use the advanced
+  //      clock instead of the stale original date so the fetched window
+  //      actually covers the current replay position.
+  // Fall back to activeTargetDate only when the clock is not yet seated (null).
+  const fetchAnchor = clock != null ? clock : activeTargetDate;
   const dataRef = useRef([]);
   const renderedRef = useRef(0);
   const [version, setVersion] = useState(0);
@@ -100,9 +105,16 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           // always starts from the user's chosen date even after playing forward.
           const lastBarTime = cs[cs.length - 1].time;
           const defaultMin = Math.max(cs[0].time, lastBarTime - REPLAY_WINDOW_SEC);
-          const minTime = activeTargetDate != null
-            ? Math.max(cs[0].time, Math.min(activeTargetDate, defaultMin))
+          // Use activeTargetDate as the replayable-range start when the user
+          // picked a date. When no date was picked, use the clock as the
+          // effective anchor (it equals fetchAnchor at this point) so the
+          // window is centred on the current clock position. Fall back to
+          // defaultMin only when neither is available.
+          const effectiveStart = activeTargetDate ?? clock ?? null;
+          const minTime = effectiveStart != null
+            ? Math.max(cs[0].time, Math.min(effectiveStart, defaultMin))
             : defaultMin;
+
           registerPane(paneId, {
             interval,
             minTime,
