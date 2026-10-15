@@ -39,6 +39,26 @@ function num(n, p = 2) {
   return n.toLocaleString(undefined, { minimumFractionDigits: p, maximumFractionDigits: p });
 }
 
+/**
+ * Choose decimal places automatically based on price magnitude so the label
+ * looks right for both large-price assets (equities, BTC) and micro-price ones
+ * (cheap alts, FX pips). Mirrors common charting-platform conventions:
+ *   >= 1000  → 2 dp   (e.g. 4 521.75)
+ *   >= 10    → 2 dp   (e.g. 47.23)
+ *   >= 1     → 4 dp   (e.g. 1.2345)
+ *   >= 0.01  → 5 dp
+ *   otherwise→ 6 dp
+ */
+function autoDecimals(price) {
+  const abs = Math.abs(price);
+  if (!Number.isFinite(abs) || abs === 0) return 2;
+  if (abs >= 1000) return 2;
+  if (abs >= 10)   return 2;
+  if (abs >= 1)    return 4;
+  if (abs >= 0.01) return 5;
+  return 6;
+}
+
 /** A pill anchored at the LEFT of the entry zone — used for the R:R badge. */
 function pillLeft(xLeft, y, text, color, bg, opts = {}) {
   return {
@@ -202,15 +222,35 @@ function makeTemplate(name) {
           styles: { color: LOSS, size: 1.5 },
         },
 
-        // --- Overall risk:reward badge (the only label) ---
-        // Colour-coded: green ≥ 2 (attractive), amber 1..2 (marginal), red < 1
-        // (bad). "1:X" is the traditional trader shorthand (risk 1 to make X).
+        // --- Overall risk:reward badge + TP/SL price labels ---
+        // R:R badge on entry line. Colour-coded: green ≥ 2 (attractive),
+        // amber 1..2 (marginal), red < 1 (bad). "1:X" is the traditional
+        // trader shorthand (risk 1 to make X).
+        // TP and SL prices sit on their own lines as left-anchored pills in
+        // the same font size so the trader can read the exact levels at a glance
+        // without needing to hover the anchor point.
         pillLeft(
           xLeft,
           entry.y,
           `R:R 1:${num(rr, rr >= 10 ? 1 : 2)}`,
           TEXT_ON_COLOR,
           rrColor(rr),
+          { bold: true, size: 11 }
+        ),
+        pillLeft(
+          xLeft,
+          tp.y,
+          `TP ${num(tpPrice, autoDecimals(tpPrice))}`,
+          TEXT_ON_COLOR,
+          PROFIT,
+          { bold: true, size: 11 }
+        ),
+        pillLeft(
+          xLeft,
+          sl.y,
+          `SL ${num(slPrice, autoDecimals(slPrice))}`,
+          TEXT_ON_COLOR,
+          LOSS,
           { bold: true, size: 11 }
         ),
       ];

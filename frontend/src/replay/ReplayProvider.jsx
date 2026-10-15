@@ -27,7 +27,7 @@ export function ReplayProvider({ children }) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [clock, setClock] = useState(null); // unix seconds
-  const [endTs, setEndTs] = useState(null); // "as of" date for fetching (null = latest)
+  const [targetDate, setTargetDate] = useState(null); // selected replay date (null = latest)
   const [panesMeta, setPanesMeta] = useState({});
 
   const range = useMemo(() => {
@@ -88,22 +88,26 @@ export function ReplayProvider({ children }) {
   const setMode = useCallback((m) => {
     setModeState(m);
     setPlaying(false);
-    if (m === "replay") setClock(null);
+    if (m === "replay") {
+      setClock(null);
+      setTargetDate(null);
+    }
   }, []);
 
   // Seat the clock, re-seating whenever the range changes (panes load asynchronously)
-  // or the clock drifts outside it. Always land near the END of the window (~99%)
-  // so entering replay LOOKS like the live view — same latest bars visible, chart
-  // doesn't feel "reset". If the user wants to review a specific past period, they
-  // drag the scrubber back OR pick an "As of" date (which lands near the end of
-  // THAT window, not the current one). Rewinding is what the scrubber and step-
-  // back controls are for; play just walks forward from wherever the clock is.
+  // or the clock drifts outside it. When targetDate is set (user selected a replay date),
+  // seat at targetDate so replay starts from that date forward. Otherwise, land near
+  // the END of the window (~99%) so entering replay LOOKS like the live view — same
+  // latest bars visible.
   useEffect(() => {
     if (mode !== "replay" || !range) return;
     setClock((c) => {
-      // First seat (or after an "As of" refetch clears the clock): land near the
-      // end so entering replay looks like the live view.
-      if (c == null) return Math.round(range.start + (range.end - range.start) * 0.99);
+      if (c == null) {
+        if (targetDate != null) {
+          return Math.max(range.start, Math.min(range.end, targetDate));
+        }
+        return Math.round(range.start + (range.end - range.start) * 0.99);
+      }
       // The range moved (e.g. a timeframe switch loaded a different window). Keep
       // the SAME moment so timeframes stay coordinated — only CLAMP it into the
       // new window; never fling the clock forward to the latest bar.
@@ -111,7 +115,7 @@ export function ReplayProvider({ children }) {
       if (c > range.end) return range.end;
       return c;
     });
-  }, [mode, range, endTs]);
+  }, [mode, range, targetDate]);
 
   useEffect(() => {
     if (!playing || mode !== "replay" || !range) return;
@@ -181,10 +185,17 @@ export function ReplayProvider({ children }) {
       const pb = prevBarTime(from);
       return clamp(pb != null ? pb : from - finestSec);
     }),
-    endTs,
+    targetDate,
+    setTargetDate: (ts) => {
+      setTargetDate(ts);
+      setPlaying(false);
+      setClock(ts != null ? ts : null);
+    },
+    endTs: targetDate,
     setEndTs: (ts) => {
-      setEndTs(ts);
-      setClock(null); // refetch re-seats the clock into the new window
+      setTargetDate(ts);
+      setPlaying(false);
+      setClock(ts != null ? ts : null);
     },
     registerPane,
     unregisterPane,

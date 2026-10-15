@@ -21,12 +21,41 @@ export function replayLimit(interval) {
 }
 
 /**
+ * Compute the query `end` timestamp for candles so that the loaded window
+ * contains context before `targetDate` and enough future candles to replay
+ * forward from `targetDate`. Returns null when fetching the latest live data.
+ */
+export function replayFetchEnd(targetDate, interval) {
+  if (targetDate == null) return null;
+  const sec = INTERVAL_SECONDS[interval] || 60;
+  const limit = replayLimit(interval);
+  const totalSpan = limit * sec;
+  // Reserve ~60% of the fetched bars for forward playback, capped by totalSpan
+  const forwardSpan = Math.floor(totalSpan * 0.6);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const desiredEnd = targetDate + forwardSpan;
+  // If the desired end reaches today/now (within 5 minutes), fetch latest (null)
+  if (desiredEnd >= nowSec - 300) return null;
+  return desiredEnd;
+}
+
+/**
  * Replay-mode data feed for a pane. Loads a window of history once, then reveals
  * candles with time <= the global wall-clock so all panes stay time-aligned.
  * No-op unless `enabled`.
  */
 export function useReplayData({ paneId, source, symbol, interval, enabled, chartRef, ready, onPrice, onLoading, coverSince }) {
-  const { clock, endTs, registerPane, unregisterPane } = useReplay();
+  const { clock, targetDate, endTs, registerPane, unregisterPane } = useReplay();
+  const activeTargetDate = targetDate ?? endTs;
+  // When the user has advanced the clock past the original targetDate (e.g. played
+  // forward for a while and then switched timeframes), anchor the fetch window on the
+  // CURRENT clock position rather than the original start date. Without this, a
+  // fine-grained interval computes a fetchEnd that ends before the current clock,
+  // causing the ReplayProvider to clamp the clock backwards to the new range.end —
+  // which makes the chart jump to an earlier date on every timeframe switch.
+  const fetchAnchor = clock != null && activeTargetDate != null && clock > activeTargetDate
+    ? clock
+    : activeTargetDate;
   const dataRef = useRef([]);
   const renderedRef = useRef(0);
   const [version, setVersion] = useState(0);
@@ -37,20 +66,27 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
     (async () => {
       onLoading?.(true);
       try {
-        // Normally load the coordinated replay window. But if a drawing sits further
-        // back than that (common after drawing on a higher timeframe then switching
-        // to a lower one, where the same bar count spans far fewer days), load enough
-        // extra history to reach it so it stays anchored to its candles. `coverSince`
-        // is ms; bar count is nominal-interval-based (over-estimates for gapped markets,
-        // which just fetches a little extra) and capped at the backend max.
+        // Load the coordinated replay window centred on fetchAnchor — the current
+        // clock position if the user has played forward past the original targetDate,
+        // otherwise the original targetDate. This ensures the fetched window always
+        // covers the current clock when switching timeframes mid-replay, preventing
+        // range.end from being earlier than the clock (which would clamp the clock
+        // backwards and make the chart jump to a wrong date).
+        // But if a drawing sits further back than that (common after drawing on a
+        // higher timeframe then switching to a lower one, where the same bar count
+        // spans far fewer days), load enough extra history to reach it so it stays
+        // anchored to its candles. `coverSince` is ms; bar count is nominal-interval-
+        // based (over-estimates for gapped markets, which just fetches a little extra)
+        // and capped at the backend max.
+        const fetchEnd = replayFetchEnd(fetchAnchor, interval);
         let limit = replayLimit(interval);
         if (Number.isFinite(coverSince)) {
-          const endRefS = endTs ?? Math.floor(Date.now() / 1000);
+          const endRefS = fetchEnd ?? Math.floor(Date.now() / 1000);
           const sec = INTERVAL_SECONDS[interval] || 60;
           const needBars = Math.ceil((endRefS - coverSince / 1000) / sec) + 60;
           if (needBars > limit) limit = Math.min(MAX_REPLAY_BARS, needBars);
         }
-        const cs = await fetchCandles(source, symbol, interval, limit, endTs);
+        const cs = await fetchCandles(source, symbol, interval, limit, fetchEnd);
         if (cancelled) return;
         dataRef.current = cs;
         renderedRef.current = 0;
@@ -58,12 +94,19 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           // Clamp the clock's start to the coordinated window even when we loaded
           // extra history for context, so every timeframe's replayable range is the
           // same span (keeping timeframes in sync) while the chart still shows the
-          // older bars on the left.
-          const endRef = endTs ?? cs[cs.length - 1].time;
+          // older bars on the left. When activeTargetDate is set, ensure minTime
+          // includes it so the user can replay from that moment forward. Use the
+          // original activeTargetDate (not fetchAnchor) here so the replayable range
+          // always starts from the user's chosen date even after playing forward.
+          const lastBarTime = cs[cs.length - 1].time;
+          const defaultMin = Math.max(cs[0].time, lastBarTime - REPLAY_WINDOW_SEC);
+          const minTime = activeTargetDate != null
+            ? Math.max(cs[0].time, Math.min(activeTargetDate, defaultMin))
+            : defaultMin;
           registerPane(paneId, {
             interval,
-            minTime: Math.max(cs[0].time, endRef - REPLAY_WINDOW_SEC),
-            maxTime: cs[cs.length - 1].time,
+            minTime,
+            maxTime: lastBarTime,
             // Sorted bar times so the replay clock can skip non-trading gaps
             // (nights, weekends, holidays) instead of crawling through dead
             // wall-clock time where no candle exists. See ReplayProvider.
@@ -86,7 +129,7 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
     // always inside the loaded window — so we avoid a refetch on every draw (which would
     // stall on slow sources like Databento).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, ready, source, symbol, interval, endTs]);
+  }, [enabled, ready, source, symbol, interval, activeTargetDate]);
 
   // Reveal candles up to the global clock.
   useEffect(() => {

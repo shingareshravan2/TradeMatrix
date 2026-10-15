@@ -28,7 +28,7 @@ function fmt(ts) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// "dd/mm/yyyy" (UTC) <-> unix seconds, for the "As of" text input.
+// "dd/mm/yyyy" (UTC) <-> unix seconds, for the replay date text input.
 function tsToDateInput(ts) {
   if (ts == null) return "";
   const d = new Date(ts * 1000);
@@ -39,7 +39,7 @@ function dateInputToTs(v) {
   const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((v || "").trim());
   if (!m) return null;
   const [, dd, mm, yyyy] = m;
-  const t = new Date(`${yyyy}-${mm}-${dd}T23:59:59Z`).getTime();
+  const t = new Date(`${yyyy}-${mm}-${dd}T00:00:00Z`).getTime();
   return Number.isNaN(t) ? null : Math.floor(t / 1000);
 }
 
@@ -51,7 +51,7 @@ function tsToNativeDate(ts) {
 }
 function nativeDateToTs(v) {
   if (!v) return null;
-  const t = new Date(v + "T23:59:59Z").getTime();
+  const t = new Date(v + "T00:00:00Z").getTime();
   return Number.isNaN(t) ? null : Math.floor(t / 1000);
 }
 
@@ -71,9 +71,14 @@ export default function ReplayBar() {
     seek,
     stepBack,
     stepForward,
+    targetDate,
+    setTargetDate,
     endTs,
     setEndTs,
   } = useReplay();
+
+  const activeDate = targetDate ?? endTs;
+  const updateDate = setTargetDate ?? setEndTs;
 
   // Floating-bar drag state. Pointer events are used (unifies mouse + touch);
   // pointer capture keeps the drag alive even if the pointer leaves the handle.
@@ -82,11 +87,11 @@ export default function ReplayBar() {
   const dateNativeRef = useRef(null); // hidden native date input behind the 📅 button
   const [pos, setPos] = useState(loadPos);
 
-  // Local text for the "As of" input so partial/invalid typing (e.g. "09/03/20")
-  // isn't clobbered by a re-derived value; we only commit to endTs on a complete
-  // date. Kept in sync when endTs changes elsewhere.
-  const [dateText, setDateText] = useState(() => tsToDateInput(endTs));
-  useEffect(() => { setDateText(tsToDateInput(endTs)); }, [endTs]);
+  // Local text for the replay date input so partial/invalid typing (e.g. "09/03/20")
+  // isn't clobbered by a re-derived value; we only commit on a complete
+  // date. Kept in sync when activeDate changes elsewhere.
+  const [dateText, setDateText] = useState(() => tsToDateInput(activeDate));
+  useEffect(() => { setDateText(tsToDateInput(activeDate)); }, [activeDate]);
 
   const clampPos = useCallback((x, y) => {
     const bar = barRef.current;
@@ -162,7 +167,7 @@ export default function ReplayBar() {
         ✕ Live
       </button>
 
-      <label className="rb-label">As of</label>
+      <label className="rb-label">Date</label>
       <div className="rb-date-wrap">
         <input
           type="text"
@@ -174,11 +179,11 @@ export default function ReplayBar() {
           onChange={(e) => {
             const v = e.target.value;
             setDateText(v);
-            if (v.trim() === "") { setEndTs(null); return; }
+            if (v.trim() === "") { updateDate(null); return; }
             const ts = dateInputToTs(v);
-            if (ts != null) setEndTs(ts);
+            if (ts != null) updateDate(ts);
           }}
-          title="Load history up to this date (dd/mm/yyyy; blank = latest)"
+          title="Replay from date (dd/mm/yyyy; blank = latest)"
         />
         <button
           type="button"
@@ -193,16 +198,16 @@ export default function ReplayBar() {
           📅
         </button>
         {/* Hidden native date input — provides the calendar popup for the button
-            above; its value stays in sync with endTs so the picker opens on the
-            current "As of" date. */}
+            above; its value stays in sync with activeDate so the picker opens on the
+            current replay date. */}
         <input
           ref={dateNativeRef}
           type="date"
           className="rb-date-native"
           tabIndex={-1}
           aria-hidden="true"
-          value={tsToNativeDate(endTs)}
-          onChange={(e) => setEndTs(nativeDateToTs(e.target.value))}
+          value={tsToNativeDate(activeDate)}
+          onChange={(e) => updateDate(nativeDateToTs(e.target.value))}
         />
       </div>
 

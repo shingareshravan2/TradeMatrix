@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useChart } from "../hooks/useChart";
 import { useCandleStream } from "../hooks/useCandleStream";
-import { useReplayData, replayLimit } from "../hooks/useReplayData";
+import { useReplayData, replayLimit, replayFetchEnd } from "../hooks/useReplayData";
 import { useReplay } from "../replay/ReplayProvider";
 import { useTrading } from "../trading/TradingProvider";
 import { fetchCandles } from "../lib/api";
@@ -80,7 +80,8 @@ const OVERLAY_LABELS = {
 
 export default function ChartPane({ paneId, config, sources, onConfigChange }) {
   const { hostRef, chartRef, ready, resetView, initialBarSpaceRef } = useChart(config.interval);
-  const { mode, clock, endTs } = useReplay();
+  const { mode, clock, targetDate, endTs } = useReplay();
+  const activeTargetDate = targetDate ?? endTs;
   const { reportPrice, trades } = useTrading();
   const [price, setPrice] = useState(null);
   const [lastTime, setLastTime] = useState(null); // time (sec) of the latest candle
@@ -603,7 +604,8 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
       await Promise.all(
         finer.map(async (htf) => {
           try {
-            const cs = await fetchCandles(config.source, config.symbol, htf, replayLimit(htf), endTs);
+            const htfEnd = replayFetchEnd(activeTargetDate, htf);
+            const cs = await fetchCandles(config.source, config.symbol, htf, replayLimit(htf), htfEnd);
             if (!cancelled) replayHtfFetchRef.current.set(`${config.source}|${config.symbol}|${htf}`, cs);
           } catch {}
         })
@@ -612,7 +614,7 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, isReplay, config.source, config.symbol, htfKey, config.interval, endTs]);
+  }, [ready, isReplay, config.source, config.symbol, htfKey, config.interval, activeTargetDate]);
 
   // ---- ICT Fair Value Gaps: stacked indicator that shades 3-candle imbalances
   // on the price pane, extended a couple of candles forward. Toggled by config.fvg.
@@ -687,11 +689,11 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
       if (isReplay && clock != null) mainCandles = mainCandles.filter((c) => c.time <= clock);
       if (!mainCandles.length) return;
 
-      // Fetch the correlate windows. In replay, fetch "as of" the replay date and
-      // cache the result (endTs is stable for the session), then clip per-clock
+      // Fetch the correlate windows. In replay, fetch based on the replay date and
+      // cache the result (activeTargetDate is stable for the session), then clip per-clock
       // locally — so advancing the clock never triggers a network round-trip. In
       // live we refetch each pass so freshly-formed swings show up.
-      const asOf = isReplay ? endTs : undefined;
+      const asOf = isReplay ? (replayFetchEnd(activeTargetDate, config.interval) ?? undefined) : undefined;
       const key = `${isReplay ? "R" : "L"}|${config.source}|${config.symbol}|${config.interval}|${asOf ?? "latest"}`;
       if (!isReplay || smtCorrelateRef.current.key !== key) {
         // Replay: fetch the SAME per-interval window the main pane replays
@@ -769,7 +771,7 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
       if (timer) clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, smtEnabled, config.source, config.symbol, config.interval, isReplay, clock, endTs]);
+  }, [ready, smtEnabled, config.source, config.symbol, config.interval, isReplay, clock, activeTargetDate]);
 
   // Remove SMT overlays + reset caches when the instrument, SMT toggle, or replay
   // mode changes (NOT on every clock tick — the detector effect above handles
@@ -838,7 +840,7 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
       if (isReplay && clock != null) mainCandles = mainCandles.filter((c) => c.time <= clock);
       if (mainCandles.length < 3) return true;
 
-      const asOf = isReplay ? endTs : undefined;
+      const asOf = isReplay ? (replayFetchEnd(activeTargetDate, config.interval) ?? undefined) : undefined;
       const key = `${isReplay ? "R" : "L"}|${config.source}|${config.symbol}|${config.interval}|${asOf ?? "latest"}`;
       if (pspCorrelateRef.current.key !== key) {
         const limit = isReplay ? replayLimit(config.interval) : Math.min(1000, mainData.length);
@@ -910,7 +912,7 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
       if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, pspEnabled, config.source, config.symbol, config.interval, isReplay, clock, endTs]);
+  }, [ready, pspEnabled, config.source, config.symbol, config.interval, isReplay, clock, activeTargetDate]);
 
   const toggleHtf = (htf) => {
     const next = htfs.includes(htf) ? htfs.filter((h) => h !== htf) : [...htfs, htf];
