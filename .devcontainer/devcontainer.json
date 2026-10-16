@@ -21,5 +21,13 @@
   // Log: tail -f /tmp/tradematrix.log
   "postStartCommand": "nohup bash .devcontainer/start.sh > /tmp/tradematrix.log 2>&1 &",
 
-  "hostRequirements": { "cpus": 2 }
+  "hostRequirements": { "cpus": 2 },
+  "customizations": {
+    "codespaces": {
+      "idleTimeoutMinutes": 60
+    }
+  }
 }
+
+
+
