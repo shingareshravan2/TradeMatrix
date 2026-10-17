@@ -36,11 +36,13 @@ _CACHE_PATH = Path(os.environ.get("TRADEMATRIX_CACHE_DIR", "~/.cache/tradematrix
 _CACHE_MAX_ENTRIES = 512
 _CACHE_MAX_BYTES = 128 * 1024 * 1024
 
-# For resampled intervals we canonicalise the underlying fetch to a single "envelope"
-# window per native schema, so 3m/5m/15m/30m all share one cached `ohlcv-1m` fetch
-# (and 4h shares one cached `ohlcv-1h`). Days cover the largest resampled interval
-# at limit=1500 with room for weekends; smaller requests scale the window down.
+# Shared native-data windows for resampled intervals, scaled to the requested
+# bar count. The 15m replay path uses a smaller interval-specific window instead.
 _ENVELOPE_DAYS = {"ohlcv-1m": 40, "ohlcv-1h": 400}
+
+# 15m replay windows are sized from the requested output bars instead of the
+# larger shared 1m-schema envelope. The buffer accounts for weekends and sessions.
+_RESAMPLE_WINDOW_BUFFER = 1.5
 
 # Canonical interval -> (Databento native OHLCV schema, resample rule | None, seconds).
 # Databento's native OHLCV schemas are 1m / 1h / 1d only; everything else resamples.
@@ -314,20 +316,20 @@ class DatabentoSource(DataSource):
             end_s = int(datetime.datetime.now(datetime.timezone.utc).timestamp()) - 900
         # Quantize end_s so "give me the latest 1500 bars" requests fired seconds
         # apart share a cache key (Databento is our expensive dependency — cache HIT
-        # returns in ~microseconds). For resampled intervals we quantize to the
-        # SCHEMA's granularity, not the interval, so 3m/5m/15m/30m collapse onto
-        # the same cache key.
-        if rule and schema in _ENVELOPE_DAYS:
-            # Envelope path: all resampled intervals sharing this schema request
-            # the SAME window for a given limit, so exactly one Databento call warms
-            # them all. Scale to the requested bar count instead of always fetching
-            # the full 1500-bar envelope for the chart's usual 500-bar initial load.
+        # returns in ~microseconds). Resampled intervals quantize to the schema's
+        # granularity; most also share a common envelope window.
+        if rule:
             envelope_bucket = 60 if schema == "ohlcv-1m" else 3600
             end_s = (end_s // envelope_bucket) * envelope_bucket
-            window = max(
-                int(_ENVELOPE_DAYS[schema] * 86400 * limit / 1500),
-                _INTRADAY_MIN_WINDOW,
-            )
+            if interval == "15m":
+                # Keep other intervals on the shared envelope so their cache hits
+                # remain reusable; 15m otherwise pulls ~2.5x excess 1m data.
+                window = max(int(sec * limit * _RESAMPLE_WINDOW_BUFFER), _INTRADAY_MIN_WINDOW)
+            else:
+                window = max(
+                    int(_ENVELOPE_DAYS[schema] * 86400 * limit / 1500),
+                    _INTRADAY_MIN_WINDOW,
+                )
         else:
             bucket = max(60, sec)
             end_s = (end_s // bucket) * bucket
