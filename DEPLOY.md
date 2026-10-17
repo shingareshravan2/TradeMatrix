@@ -114,10 +114,14 @@ gcloud run deploy "$SERVICE" \
   --port=8080 \
   --memory=1Gi \
   --cpu=1 \
-  --min-instances=0 \
+  --min-instances=1 \
   --max-instances=3 \
   --set-secrets="DATABENTO_API_KEY=${SECRET}:latest"
 ```
+
+`--min-instances=1` keeps an instance available when the service is idle, avoiding
+scale-to-zero shutdowns. This can incur ongoing Cloud Run charges. Cloud Run can
+still restart instances for maintenance or failures.
 
 What's happening:
 - `--set-secrets` binds Secret Manager `databento-api-key:latest` to the
