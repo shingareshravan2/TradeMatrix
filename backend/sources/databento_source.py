@@ -34,6 +34,7 @@ _INTRADAY_MIN_WINDOW = 4 * 86400
 # dev (survives auto-reload); big win in production (survives redeploy).
 _CACHE_PATH = Path(os.environ.get("TRADEMATRIX_CACHE_DIR", "~/.cache/tradematrix")).expanduser() / "databento.pkl"
 _CACHE_MAX_ENTRIES = 512
+_CACHE_MAX_BYTES = 128 * 1024 * 1024
 
 # For resampled intervals we canonicalise the underlying fetch to a single "envelope"
 # window per native schema, so 3m/5m/15m/30m all share one cached `ohlcv-1m` fetch
@@ -107,6 +108,15 @@ class DatabentoSource(DataSource):
 
     def _load_cache_from_disk(self) -> None:
         try:
+            cache_size = _CACHE_PATH.stat().st_size
+            if cache_size > _CACHE_MAX_BYTES:
+                _log.warning(
+                    "DBN cache load skipped: %s is %d bytes (limit %d); starting with an empty cache",
+                    _CACHE_PATH,
+                    cache_size,
+                    _CACHE_MAX_BYTES,
+                )
+                return
             with _CACHE_PATH.open("rb") as fh:
                 data = pickle.load(fh)
             if isinstance(data, dict):
