@@ -4,9 +4,8 @@ import { correctOverlayX } from "./overlayTimeCtx";
 // Long / Short position drawing tools, inspired by TradingView's tools of the
 // same name. Three anchor clicks: entry, stop-loss, take-profit. The overlay
 // paints a green profit zone (entry -> TP) and a red loss zone (entry -> SL)
-// extending to the right edge. The only label is the overall risk:reward badge
-// near the entry — everything else (per-level prices, %s, R-multiples) is left
-// off deliberately to keep the tool uncluttered.
+// extending to the right edge. The entry label shows risk:reward and target
+// distance; TP/SL price labels identify the exact levels.
 
 // ---- Theme ----
 const PROFIT_FILL = "rgba(38, 166, 154, 0.20)";
@@ -222,17 +221,16 @@ function makeTemplate(name) {
           styles: { color: LOSS, size: 1.5 },
         },
 
-        // --- Overall risk:reward badge + TP/SL price labels ---
-        // R:R badge on entry line. Colour-coded: green ≥ 2 (attractive),
-        // amber 1..2 (marginal), red < 1 (bad). "1:X" is the traditional
-        // trader shorthand (risk 1 to make X).
+        // --- Risk:reward and target distance + TP/SL price labels ---
+        // Keep the target distance in the same pill and font as the R:R ratio.
+        // R:R is colour-coded: green ≥ 2, amber 1..2, red < 1.
         // TP and SL prices sit on their own lines as left-anchored pills in
         // the same font size so the trader can read the exact levels at a glance
         // without needing to hover the anchor point.
         pillLeft(
           xLeft,
           entry.y,
-          `R:R 1:${num(rr, rr >= 10 ? 1 : 2)}`,
+          `R:R 1:${num(rr, rr >= 10 ? 1 : 2)} · TP ${num(reward, autoDecimals(reward))} pts`,
           TEXT_ON_COLOR,
           rrColor(rr),
           { bold: true, size: 11 }
