@@ -14,7 +14,7 @@ import { useReplay } from "../replay/ReplayProvider";
 const REPLAY_WINDOW_SEC = 45 * 86400; // ~45 days — the coordinated clock range
 const MAX_REPLAY_BARS = 5000;         // backend per-request cap
 const MIN_REPLAY_BARS = 300;          // floor so coarse timeframes still fill the chart
-const REPLAY_SWITCH_LIMIT = 1800;      // avoid pulling the full newest tail on every timeframe switch
+const REPLAY_SWITCH_LIMIT = 1800;      // keep timeframe switches responsive without losing chart context
 export function replayLimit(interval) {
   const sec = INTERVAL_SECONDS[interval] || 60;
   const forWindow = Math.ceil(REPLAY_WINDOW_SEC / sec);
@@ -26,10 +26,9 @@ export function replayLimit(interval) {
  * contains context before `targetDate` and enough future candles to replay
  * forward from `targetDate`. Returns null when fetching the latest live data.
  */
-export function replayFetchEnd(targetDate, interval) {
+export function replayFetchEnd(targetDate, interval, limit = replayLimit(interval)) {
   if (targetDate == null) return null;
   const sec = INTERVAL_SECONDS[interval] || 60;
-  const limit = replayLimit(interval);
   const totalSpan = limit * sec;
   // Reserve ~60% of the fetched bars for forward playback, capped by totalSpan
   const forwardSpan = Math.floor(totalSpan * 0.6);
@@ -48,6 +47,9 @@ export function replayFetchEnd(targetDate, interval) {
 export function useReplayData({ paneId, source, symbol, interval, enabled, chartRef, ready, onPrice, onLoading, onError, coverSince }) {
   const { clock, targetDate, endTs, registerPane, unregisterPane } = useReplay();
   const activeTargetDate = targetDate ?? endTs;
+  const previousIntervalRef = useRef(interval);
+  const isTimeframeSwitch = previousIntervalRef.current !== interval;
+  previousIntervalRef.current = interval;
   // Always anchor the fetch window on the current clock when it is available.
   // This covers two cases:
   //   1. No targetDate set (user entered replay by clicking "Replay" and
@@ -84,16 +86,16 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
         // anchored to its candles. `coverSince` is ms; bar count is nominal-interval-
         // based (over-estimates for gapped markets, which just fetches a little extra)
         // and capped at the backend max.
-        const fetchEnd = replayFetchEnd(fetchAnchor, interval);
-        let limit = replayLimit(interval);
-        if (fetchEnd == null) {
-          // Replay switches often land near the end of the coordinated range and
-          // would otherwise request the entire newest tail (up to 5k bars), which
-          // makes fine-grained intervals feel frozen while the chart repaints. Keep
-          // latest-window fetches bounded so the switch stays responsive without
-          // losing the current replay context.
+        const fullLimit = replayLimit(interval);
+        let limit = fullLimit;
+        if (replayFetchEnd(fetchAnchor, interval, fullLimit) == null || isTimeframeSwitch) {
+          // Bound latest-window fetches and timeframe switches so fine-grained
+          // intervals do not fetch and repaint thousands of bars unnecessarily.
           limit = Math.min(limit, REPLAY_SWITCH_LIMIT);
         }
+        // Derive the end from the bounded limit so the fetched slice still includes
+        // the current clock instead of ending beyond it with too few bars.
+        const fetchEnd = replayFetchEnd(fetchAnchor, interval, limit);
         if (Number.isFinite(coverSince)) {
           const endRefS = fetchEnd ?? Math.floor(Date.now() / 1000);
           const sec = INTERVAL_SECONDS[interval] || 60;
