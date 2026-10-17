@@ -14,6 +14,7 @@ import { useReplay } from "../replay/ReplayProvider";
 const REPLAY_WINDOW_SEC = 45 * 86400; // ~45 days — the coordinated clock range
 const MAX_REPLAY_BARS = 5000;         // backend per-request cap
 const MIN_REPLAY_BARS = 300;          // floor so coarse timeframes still fill the chart
+const REPLAY_SWITCH_LIMIT = 1800;      // avoid pulling the full newest tail on every timeframe switch
 export function replayLimit(interval) {
   const sec = INTERVAL_SECONDS[interval] || 60;
   const forWindow = Math.ceil(REPLAY_WINDOW_SEC / sec);
@@ -85,6 +86,14 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
         // and capped at the backend max.
         const fetchEnd = replayFetchEnd(fetchAnchor, interval);
         let limit = replayLimit(interval);
+        if (fetchEnd == null) {
+          // Replay switches often land near the end of the coordinated range and
+          // would otherwise request the entire newest tail (up to 5k bars), which
+          // makes fine-grained intervals feel frozen while the chart repaints. Keep
+          // latest-window fetches bounded so the switch stays responsive without
+          // losing the current replay context.
+          limit = Math.min(limit, REPLAY_SWITCH_LIMIT);
+        }
         if (Number.isFinite(coverSince)) {
           const endRefS = fetchEnd ?? Math.floor(Date.now() / 1000);
           const sec = INTERVAL_SECONDS[interval] || 60;
