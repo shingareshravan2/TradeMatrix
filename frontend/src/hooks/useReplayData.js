@@ -44,7 +44,7 @@ export function replayFetchEnd(targetDate, interval) {
  * candles with time <= the global wall-clock so all panes stay time-aligned.
  * No-op unless `enabled`.
  */
-export function useReplayData({ paneId, source, symbol, interval, enabled, chartRef, ready, onPrice, onLoading, coverSince }) {
+export function useReplayData({ paneId, source, symbol, interval, enabled, chartRef, ready, onPrice, onLoading, onError, coverSince }) {
   const { clock, targetDate, endTs, registerPane, unregisterPane } = useReplay();
   const activeTargetDate = targetDate ?? endTs;
   // Always anchor the fetch window on the current clock when it is available.
@@ -93,6 +93,14 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
         }
         const cs = await fetchCandles(source, symbol, interval, limit, fetchEnd);
         if (cancelled) return;
+        if (!cs.length) {
+          dataRef.current = [];
+          try { chartRef.current?.applyNewData([]); } catch {}
+          onError?.(`No candles returned for ${symbol} ${interval}`);
+          setVersion((v) => v + 1);
+          return;
+        }
+        onError?.(null);
         dataRef.current = cs;
         renderedRef.current = 0;
         if (cs.length) {
@@ -126,8 +134,9 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           });
         }
         setVersion((v) => v + 1);
-      } catch {
+      } catch (err) {
         dataRef.current = [];
+        if (!cancelled) onError?.(err.message || String(err));
       } finally {
         if (!cancelled) onLoading?.(false);
       }

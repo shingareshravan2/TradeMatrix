@@ -38,7 +38,7 @@ const MAIN_INDICATORS = ["MA", "EMA", "BOLL"]; // overlaid on the price pane
 const SUB_INDICATORS = ["VOL", "MACD", "RSI", "KDJ"]; // each in its own sub-pane
 const ALL_INDICATORS = [...MAIN_INDICATORS, ...SUB_INDICATORS];
 
-const HTF_OPTIONS = ["30m", "1h", "4h", "1d"]; // higher timeframes that can be stacked
+const HTF_OPTIONS = ["15m", "30m", "1h", "4h", "1d"]; // higher timeframes that can be stacked
 const HTF_COUNT = 6; // candles shown per HTF group
 const DEFAULT_RIGHT_OFFSET = 80;
 
@@ -223,6 +223,7 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
     ready,
     onPrice: mark,
     onLoading: setLoading,
+    onError: setError,
     coverSince: drawingsMinTs,
   });
 
