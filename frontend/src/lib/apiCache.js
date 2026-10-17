@@ -64,7 +64,11 @@ export async function cachedFetch(key, hasEnd, loader, _onRevalidate) {
   evictIfNeeded();
 
   try {
-    return await promise;
+    const result = await promise;
+    if (Array.isArray(result) && result.length === 0 && store.get(key) === entry) {
+      store.delete(key);
+    }
+    return result;
   } catch (err) {
     if (store.get(key) === entry) store.delete(key);
     throw err;

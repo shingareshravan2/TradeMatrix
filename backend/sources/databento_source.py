@@ -290,7 +290,9 @@ class DatabentoSource(DataSource):
                 datetime.datetime.fromtimestamp(end_s, datetime.timezone.utc).isoformat(),
                 type(exc).__name__, exc,
             )
-            return []
+            raise RuntimeError(
+                f"Databento fetch failed for {symbol} ({schema}): {type(exc).__name__}: {exc}"
+            ) from exc
         # Bounded cache (drop the oldest half when full — insertion-ordered).
         with self._cache_lock:
             self._cache[key] = candles
