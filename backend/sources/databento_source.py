@@ -155,8 +155,14 @@ class DatabentoSource(DataSource):
             end_str = sch.get("end") or info.get("end")
             start_s = int(datetime.datetime.fromisoformat(start_str.replace("Z", "+00:00")).timestamp())
             end_s = int(datetime.datetime.fromisoformat(end_str.replace("Z", "+00:00")).timestamp())
-        except Exception:
-            start_s, end_s = 0, int(now) - 86400
+        except Exception as exc:
+            _log.warning(
+                "Databento dataset-range lookup failed for %s (%s: %s); using a 15-minute availability buffer",
+                schema,
+                type(exc).__name__,
+                exc,
+            )
+            start_s, end_s = 0, int(now) - 900
         self._dataset_range_cache[schema] = (now, start_s, end_s)
         return start_s, end_s
 
