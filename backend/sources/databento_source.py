@@ -238,7 +238,7 @@ class DatabentoSource(DataSource):
                 dataset="GLBX.MDP3",
                 symbols=[symbol],
                 schema=schema,
-                start=start,
+                start=1711929600,
                 end=end,
                 stype_in="continuous",
             )
