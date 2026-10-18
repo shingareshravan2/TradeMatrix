@@ -69,7 +69,8 @@ Per-source specifics worth knowing before touching them:
 - **databento** — historical only; `stream()` is a deliberate no-op generator (saves trial credits),
   so futures panes never tick live. Native OHLCV schemas are 1m/1h/1d only; everything else resamples
   with pandas. The "envelope" trick in `get_candles` makes every interval sharing a schema request the
-  *same quantized window*, so one API call warms 3m/5m/15m/30m at once. Windows are cached by
+  *same quantized window*, so one API call warms 3m/30m at once. 5m and 15m use narrower
+  interval-specific windows. Windows are cached by
   `(symbol, schema, start_s, end_s)` in memory, pickled to `~/.cache/tradematrix/databento.pkl`
   (`TRADEMATRIX_CACHE_DIR`), and concurrent identical fetches coalesce onto one future. `end` is
   clamped to `now - 900s` because the historical feed lags real time (otherwise 422).

@@ -39,8 +39,8 @@ async def _prefetch_databento() -> None:
         _prefetch_log.info("Databento client not configured — skipping prefetch")
         return
 
-    # Prefetch native schemas: 1m warms 1m/3m/5m/15m/30m via the envelope, 1h warms
-    # 1h/4h via its envelope, 1d is its own thing.
+    # Prefetch native schemas: 1m warms 1m/3m/30m via the envelope, 1h warms 1h/4h
+    # via its envelope, and 5m/15m use their own narrower windows.
     intervals = ("1m", "1h", "1d")
     jobs = [(entry["symbol"], iv) for entry in _SYMBOLS for iv in intervals]
     total = len(jobs)
