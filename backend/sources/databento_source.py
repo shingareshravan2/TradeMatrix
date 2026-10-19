@@ -37,10 +37,10 @@ _CACHE_MAX_ENTRIES = 512
 _CACHE_MAX_BYTES = 128 * 1024 * 1024
 
 # Shared native-data windows for resampled intervals, scaled to the requested
-# bar count. The 5m and 15m paths use smaller interval-specific windows instead.
+# bar count. The 3m, 5m and 15m paths use smaller interval-specific windows instead.
 _ENVELOPE_DAYS = {"ohlcv-1m": 40, "ohlcv-1h": 400}
 
-# 5m and 15m windows are sized from the requested output bars instead of the
+# 3m, 5m and 15m windows are sized from the requested output bars instead of the
 # larger shared 1m-schema envelope. The buffer accounts for weekends and sessions.
 _RESAMPLE_WINDOW_BUFFER = 1.5
 
@@ -343,9 +343,9 @@ class DatabentoSource(DataSource):
         if rule:
             envelope_bucket = 60 if schema == "ohlcv-1m" else 3600
             end_s = (end_s // envelope_bucket) * envelope_bucket
-            if interval in ("5m", "15m"):
-                # Keep other intervals on the shared envelope so their cache hits
-                # remain reusable; these chart windows otherwise pull excess 1m data.
+            if interval in ("3m", "5m", "15m"):
+                # These chart windows need far less 1m history than the shared
+                # envelope used by 30m; avoid fetching and resampling excess rows.
                 window = max(int(sec * limit * _RESAMPLE_WINDOW_BUFFER), _INTRADAY_MIN_WINDOW)
             else:
                 window = max(

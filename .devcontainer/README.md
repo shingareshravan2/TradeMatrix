@@ -5,17 +5,17 @@ FastAPI serves the built SPA plus `/api` and `/ws` on a single port, so there is
 one origin, one forwarded port, one link.
 
 > **Codespaces is a dev environment, not a host.** The link only works while the
-> codespace is *running*, and a codespace stops after a period of inactivity —
-> 30 min by default, 240 min max (step 1 below). Traffic to the forwarded port does
-> NOT count as activity; only interaction with the editor does. Read "Limits" at
-> the bottom before relying on this.
+> codespace is *running*. This devcontainer requests the maximum idle timeout of
+> 240 minutes, but Codespaces will still stop after inactivity. Traffic to the
+> forwarded port does NOT count as activity; only interaction with the editor
+> does. Read "Limits" at the bottom before relying on this.
 
 ## One-time setup
 
-1. **Raise the idle timeout before creating anything.**
-   https://github.com/settings/codespaces → *Default idle timeout* → `240` minutes.
-   It is applied at creation time, so changing it later won't affect a codespace
-   that already exists.
+1. **Set your Codespaces idle timeout to `240` minutes** at
+   https://github.com/settings/codespaces → *Default idle timeout*. The
+   devcontainer also requests 240 minutes; recreate an existing codespace for
+   devcontainer configuration changes to take effect.
 
    Then **push this repo** (including `.devcontainer/`) to GitHub.
 
@@ -93,7 +93,7 @@ Backend edits: restart `start.sh`. Add `--reload` to the uvicorn line in
 
 ## Limits — read before sharing the link
 
-- **Stops when idle** (30 min default, 240 min max). While stopped the link just
+- **Stops when idle** (240 min maximum). While stopped the link just
   times out. Reopening the codespace from https://github.com/codespaces brings it
   back on the same URL — `postStartCommand` relaunches the server unattended, and
   port visibility persists, so there is nothing to redo.
