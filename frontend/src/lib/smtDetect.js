@@ -12,15 +12,15 @@ const SWING_WINDOW = 3;   // a candle is a swing if it's the extreme within ±3
 const MAX_TIME_DIFF = 24 * 60 * 60; // correlate swing must land within 24h of main's
 
 /** Return {highs, lows} — arrays of {time, price} for the extreme points. */
-export function findSwings(candles, window = SWING_WINDOW) {
+export function findSwings(candles, window = SWING_WINDOW, confirmationWindow = window) {
   const highs = [];
   const lows = [];
   const n = candles.length;
-  for (let i = window; i < n - window; i++) {
+  for (let i = window; i < n - confirmationWindow; i++) {
     const c = candles[i];
     let isHigh = true;
     let isLow = true;
-    for (let j = i - window; j <= i + window && (isHigh || isLow); j++) {
+    for (let j = i - window; j <= i + confirmationWindow && (isHigh || isLow); j++) {
       if (j === i) continue;
       const other = candles[j];
       if (other.high >= c.high) isHigh = false;
@@ -62,8 +62,12 @@ export function detectDivergences(mainCandles, correlateCandles) {
   if (mainCandles.length < 2 * SWING_WINDOW + 2) return [];
   if (correlateCandles.length < 2 * SWING_WINDOW + 2) return [];
 
-  const mainSwings = findSwings(mainCandles);
-  const corSwings = findSwings(correlateCandles);
+  // SMT must be visible as soon as a candle makes a fresh local extreme. A
+  // symmetric window waits for three future candles to confirm each pivot,
+  // which makes replay signals appear several bars after the divergence. Keep
+  // the same left-side context, but don't require any right-side confirmation.
+  const mainSwings = findSwings(mainCandles, SWING_WINDOW, 0);
+  const corSwings = findSwings(correlateCandles, SWING_WINDOW, 0);
   const results = [];
 
   for (const kind of ["highs", "lows"]) {
