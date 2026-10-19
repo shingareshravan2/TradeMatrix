@@ -6,7 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -106,7 +106,10 @@ async def candles(
     end: int | None = Query(None, description="unix seconds; return bars ending at/before this time"),
 ):
     src = get_source(source)
-    data = await src.get_candles(symbol, interval, limit, end)
+    try:
+        data = await src.get_candles(symbol, interval, limit, end)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return [c.to_dict() for c in data]
 
 

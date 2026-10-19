@@ -246,14 +246,34 @@ class DatabentoSource(DataSource):
             start = datetime.datetime.fromtimestamp(start_s, datetime.timezone.utc)
             end = datetime.datetime.fromtimestamp(end_s, datetime.timezone.utc)
             t_api0 = _time.monotonic()
-            data = self._client.timeseries.get_range(
-                dataset="GLBX.MDP3",
-                symbols=[symbol],
-                schema=schema,
-                start=start,
-                end=end,
-                stype_in="continuous",
-            )
+            for attempt in range(3):
+                try:
+                    data = self._client.timeseries.get_range(
+                        dataset="GLBX.MDP3",
+                        symbols=[symbol],
+                        schema=schema,
+                        start=start,
+                        end=end,
+                        stype_in="continuous",
+                    )
+                    break
+                except db.BentoHttpError as exc:
+                    retryable = exc.http_status in (408, 429) or exc.http_status >= 500
+                    if not retryable or attempt == 2:
+                        raise
+                    try:
+                        delay = min(2.0, max(0.0, float(exc.headers.get("Retry-After", ""))))
+                    except (TypeError, ValueError):
+                        delay = 0.5 * (2**attempt)
+                    _log.warning(
+                        "Databento request retry %d/2 for %s (%s, HTTP %d) in %.1fs",
+                        attempt + 1,
+                        symbol,
+                        schema,
+                        exc.http_status,
+                        delay,
+                    )
+                    _time.sleep(delay)
             t_api = _time.monotonic() - t_api0
             t_df0 = _time.monotonic()
             df = data.to_df()

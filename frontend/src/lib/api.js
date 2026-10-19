@@ -12,7 +12,14 @@ export async function fetchCandles(source, symbol, interval, limit = 500, end, o
   const key = params.toString();
   return cachedFetch(key, end != null, async () => {
     const res = await fetch(`/api/candles?${params}`);
-    if (!res.ok) throw new Error(`failed to load candles: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).detail || body;
+      } catch {}
+      throw new Error(`failed to load candles: ${res.status}${detail ? ` - ${detail}` : ""}`);
+    }
     return res.json();
   }, onFresh);
 }
