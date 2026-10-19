@@ -29,6 +29,9 @@ if not _log.handlers:
 # gap on the front month without being so wide that Databento has to return orders
 # of magnitude more raw rows than the caller asked for.
 _INTRADAY_MIN_WINDOW = 4 * 86400
+# The initial 1m chart only needs a standard weekend's lookback, not the wider
+# holiday buffer used by other intraday requests.
+_ONE_MINUTE_MIN_WINDOW = 2 * 86400
 
 # Path where the fetched-window cache is persisted across restarts. Small win in
 # dev (survives auto-reload); big win in production (survives redeploy).
@@ -359,7 +362,8 @@ class DatabentoSource(DataSource):
             # buffer keeps payloads small.
             buffer = 1.2
             wanted = int(sec * limit * buffer)
-            window = max(wanted, _INTRADAY_MIN_WINDOW) if sec < 86400 else wanted + 86400
+            min_window = _ONE_MINUTE_MIN_WINDOW if interval == "1m" else _INTRADAY_MIN_WINDOW
+            window = max(wanted, min_window) if sec < 86400 else wanted + 86400
         start_s = end_s - window
 
         candles = await self._fetch_window_coalesced(symbol, schema, start_s, end_s)
