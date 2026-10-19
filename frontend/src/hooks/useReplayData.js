@@ -15,6 +15,7 @@ const REPLAY_WINDOW_SEC = 45 * 86400; // ~45 days — the coordinated clock rang
 const MAX_REPLAY_BARS = 5000;         // backend per-request cap
 const MIN_REPLAY_BARS = 300;          // floor so coarse timeframes still fill the chart
 const REPLAY_SWITCH_LIMIT = 1800;      // keep timeframe switches responsive without losing chart context
+const REPLAY_SWITCH_INITIAL_BARS = 300; // paint quickly, then expand the window in the background
 export function replayLimit(interval) {
   const sec = INTERVAL_SECONDS[interval] || 60;
   const forWindow = Math.ceil(REPLAY_WINDOW_SEC / sec);
@@ -50,6 +51,8 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
   const previousIntervalRef = useRef(interval);
   const isTimeframeSwitch = previousIntervalRef.current !== interval;
   previousIntervalRef.current = interval;
+  const clockRef = useRef(clock);
+  clockRef.current = clock;
   // Always anchor the fetch window on the current clock when it is available.
   // This covers two cases:
   //   1. No targetDate set (user entered replay by clicking "Replay" and
@@ -102,7 +105,14 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           const needBars = Math.ceil((endRefS - coverSince / 1000) / sec) + 60;
           if (needBars > limit) limit = Math.min(MAX_REPLAY_BARS, needBars);
         }
-        const cs = await fetchCandles(source, symbol, interval, limit, fetchEnd);
+        const completeLimit = limit;
+        const initialLimit = isTimeframeSwitch
+          ? Math.min(completeLimit, REPLAY_SWITCH_INITIAL_BARS)
+          : completeLimit;
+        const initialEnd = initialLimit < completeLimit
+          ? replayFetchEnd(fetchAnchor, interval, initialLimit)
+          : fetchEnd;
+        const cs = await fetchCandles(source, symbol, interval, initialLimit, initialEnd);
         if (cancelled) return;
         if (!cs.length) {
           dataRef.current = [];
@@ -112,9 +122,32 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           return;
         }
         onError?.(null);
-        dataRef.current = cs;
-        renderedRef.current = 0;
-        if (cs.length) {
+        const publishData = (candles, expand = false) => {
+          if (expand && dataRef.current.length) {
+            const chart = chartRef.current;
+            const existing = chart?.getDataList?.() ?? [];
+            if (existing.length) {
+              const now = clockRef.current;
+              const visible = candles.filter((c) => now == null || c.time <= now);
+              const firstTime = existing[0].timestamp / 1000;
+              const lastTime = existing[existing.length - 1].timestamp / 1000;
+              const older = visible.filter((c) => c.time < firstTime);
+              const newer = visible.filter((c) => c.time > lastTime);
+              try {
+                if (older.length) chart.applyMoreData(older.map(toKline), true);
+                for (const candle of newer) chart.updateData(toKline(candle));
+                renderedRef.current = visible.length;
+              } catch {
+                renderedRef.current = 0;
+              }
+            } else {
+              renderedRef.current = 0;
+            }
+          } else {
+            renderedRef.current = 0;
+          }
+          dataRef.current = candles;
+
           // Clamp the clock's start to the coordinated window even when we loaded
           // extra history for context, so every timeframe's replayable range is the
           // same span (keeping timeframes in sync) while the chart still shows the
@@ -122,8 +155,8 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           // includes it so the user can replay from that moment forward. Use the
           // original activeTargetDate (not fetchAnchor) here so the replayable range
           // always starts from the user's chosen date even after playing forward.
-          const lastBarTime = cs[cs.length - 1].time;
-          const defaultMin = Math.max(cs[0].time, lastBarTime - REPLAY_WINDOW_SEC);
+          const lastBarTime = candles[candles.length - 1].time;
+          const defaultMin = Math.max(candles[0].time, lastBarTime - REPLAY_WINDOW_SEC);
           // Use activeTargetDate as the replayable-range start when the user
           // picked a date. When no date was picked, use the clock as the
           // effective anchor (it equals fetchAnchor at this point) so the
@@ -131,7 +164,7 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           // defaultMin only when neither is available.
           const effectiveStart = activeTargetDate ?? clock ?? null;
           const minTime = effectiveStart != null
-            ? Math.max(cs[0].time, Math.min(effectiveStart, defaultMin))
+            ? Math.max(candles[0].time, Math.min(effectiveStart, defaultMin))
             : defaultMin;
 
           registerPane(paneId, {
@@ -141,10 +174,26 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
             // Sorted bar times so the replay clock can skip non-trading gaps
             // (nights, weekends, holidays) instead of crawling through dead
             // wall-clock time where no candle exists. See ReplayProvider.
-            times: cs.map((c) => c.time),
+            times: candles.map((c) => c.time),
           });
+          setVersion((v) => v + 1);
+        };
+        publishData(cs);
+
+        if (initialLimit < completeLimit) {
+          // Let the initial window reach the chart before expanding it, so the
+          // incremental prepend/append below can preserve the visible viewport.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (cancelled) return;
+          void fetchCandles(source, symbol, interval, completeLimit, fetchEnd)
+            .then((completeCandles) => {
+              if (cancelled) return;
+              if (completeCandles.length > cs.length) publishData(completeCandles, true);
+            })
+            .catch((err) => {
+              if (!cancelled) onError?.(err.message || String(err));
+            });
         }
-        setVersion((v) => v + 1);
       } catch (err) {
         dataRef.current = [];
         if (!cancelled) onError?.(err.message || String(err));
