@@ -97,10 +97,13 @@ class YFinanceSource(DataSource):
             days = _period_days(interval, native, limit)
             df = ticker.history(period=f"{days}d", interval=native)
         else:
-            # Fetch a window ending at `end`; 3x buffer covers weekends/holidays.
-            sec = _INTERVAL_SECONDS.get(interval, 60)
+            # Fetch enough calendar days to cover the requested bars plus weekends
+            # and holidays. Multiplying the bar duration by 3 was still too short
+            # for small intraday requests ending on a weekend (e.g. 500 1m bars
+            # started after the prior NSE session had closed).
+            days = _period_days(interval, native, limit)
             end_dt = datetime.datetime.fromtimestamp(end, datetime.timezone.utc)
-            start_dt = end_dt - datetime.timedelta(seconds=sec * limit * 3)
+            start_dt = end_dt - datetime.timedelta(days=days)
             df = ticker.history(start=start_dt, end=end_dt, interval=native)
         if df.empty:
             return []
