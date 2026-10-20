@@ -676,9 +676,9 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
     const correlates = SMT_TRIO.filter((s) => s !== config.symbol);
 
     const detect = async () => {
-      if (cancelled) return;
+      if (cancelled) return true;
       const mainData = chart.getDataList?.() ?? [];
-      if (!mainData.length) return;
+      if (!mainData.length) return false;
       // KLineChart internal format uses `timestamp` (ms); our detector wants
       // `time` (seconds) alongside high/low, so normalise. In replay getDataList
       // is already clipped to the clock; clip again defensively.
@@ -688,7 +688,7 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
         low: c.low,
       }));
       if (isReplay && clock != null) mainCandles = mainCandles.filter((c) => c.time <= clock);
-      if (!mainCandles.length) return;
+      if (mainCandles.length < 2) return true;
 
       // Fetch the correlate windows. In replay, fetch based on the replay date and
       // cache the result (activeTargetDate is stable for the session), then clip per-clock
@@ -718,7 +718,7 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
         };
       }
       const cors = (await smtCorrelateRef.current.promise).filter(Boolean);
-      if (cancelled || !chartRef.current) return;
+      if (cancelled || !chartRef.current) return true;
 
       // Detect divergences against each correlate, clipping the correlate to the
       // clock in replay so we don't peek at swings that form after "now".
@@ -752,24 +752,31 @@ export default function ChartPane({ paneId, config, sources, onConfigChange }) {
           if (typeof id === "string") smtOverlayIdsRef.current.add(id);
         } catch {}
       }
+      return true;
     };
 
-    // Live: small delay so the initial applyNewData settles, then poll every 30s
-    // so freshly-formed swings appear without a reload. Replay: the `clock` dep
+    // Live: retry quickly until the candles have loaded, then poll every 30s so
+    // freshly-formed swings appear without a reload. Replay: the `clock` dep
     // re-runs this effect on each tick, so just detect immediately (no polling).
-    let first;
     let timer;
     if (isReplay) {
       detect();
     } else {
-      first = setTimeout(detect, 400);
-      timer = setInterval(detect, 30_000);
+      let attempts = 0;
+      const run = async () => {
+        if (cancelled) return;
+        const ready2 = await detect();
+        if (cancelled) return;
+        attempts += 1;
+        if (ready2) smtCorrelateRef.current = { key: null, promise: null };
+        timer = setTimeout(run, ready2 ? 30_000 : Math.min(5_000, 500 * attempts));
+      };
+      timer = setTimeout(run, 300);
     }
 
     return () => {
       cancelled = true;
-      if (first) clearTimeout(first);
-      if (timer) clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, smtEnabled, config.source, config.symbol, config.interval, isReplay, clock, activeTargetDate]);
