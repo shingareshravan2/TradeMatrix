@@ -51,11 +51,13 @@ Two processes. **Backend first:**
 
 ```bash
 cd backend
-./run.sh                # creates .venv, installs deps, runs uvicorn on :8000
+./run.sh                # creates .venv, installs deps, serves on :1030
 ```
 
 `run.sh` auto-sets `LD_LIBRARY_PATH` for `libstdc++` so numpy/pandas wheels work on
-NixOS. On other systems plain `uvicorn main:app --reload` works after
+NixOS. It listens on all interfaces so the backend can be reached through a
+forwarded port. On other systems plain
+`uvicorn main:app --reload --host 0.0.0.0 --port 1030` works after
 `pip install -r requirements.txt`.
 
 **Frontend:**
@@ -84,12 +86,12 @@ Or plain Docker:
 
 ```bash
 docker build -t tradematrix:latest .
-docker run --rm --name tradematrix -p 8080:8000 tradematrix:latest
+docker run --rm --name tradematrix -p 8080:8080 tradematrix:latest
 ```
 
 Open http://localhost:8080. The API, websocket, and SPA are all served from the
-same origin, so no proxy is needed in this mode. Container port is **8000**,
-published on host port **8080** (change the left side of `8080:8000` in
+same origin, so no proxy is needed in this mode. Container port is **8080**,
+published on host port **8080** (change the left side of `8080:8080` in
 `docker-compose.yml` if 8080 is taken).
 
 ## Notes
