@@ -117,7 +117,9 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
         if (!cs.length) {
           dataRef.current = [];
           try { chartRef.current?.applyNewData([]); } catch {}
-          onError?.(`No candles returned for ${symbol} ${interval}`);
+          onError?.(source === "yfinance"
+            ? `Yahoo Finance has no ${interval} candles for ${symbol} in this replay window. Intraday history is limited; try a more recent date, a coarser interval, or a source with deeper history.`
+            : `No candles returned for ${symbol} ${interval}`);
           setVersion((v) => v + 1);
           return;
         }

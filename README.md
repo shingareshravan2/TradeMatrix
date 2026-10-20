@@ -98,7 +98,9 @@ published on host port **8080** (change the left side of `8080:8080` in
 
 - **yfinance is polling, not streaming.** "Live" Indian-stock prices update on a timer
   and are only fresh during NSE market hours (09:15–15:30 IST); outside that you see
-  the last close.
+  the last close. Yahoo's intraday history is limited, so replaying dates outside its
+  available window may return no candles; use a more recent date, a coarser interval,
+  or a source with deeper history.
 - All 8 panes share a single backend websocket (multiplexed by pane id).
 
 ## Roadmap
