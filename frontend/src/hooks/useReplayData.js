@@ -40,6 +40,36 @@ export function replayFetchEnd(targetDate, interval, limit = replayLimit(interva
   return desiredEnd;
 }
 
+function aggregateKlines(klines, interval, previousInterval, clock) {
+  const intervalSec = INTERVAL_SECONDS[interval] || 60;
+  const previousSec = INTERVAL_SECONDS[previousInterval] || 60;
+  if (intervalSec <= previousSec || intervalSec % previousSec !== 0) return [];
+
+  const buckets = new Map();
+  for (const kline of klines) {
+    const time = Math.floor(kline.timestamp / 1000);
+    if (!Number.isFinite(time) || (clock != null && time > clock)) continue;
+    const bucketTime = Math.floor(time / intervalSec) * intervalSec;
+    const candle = buckets.get(bucketTime);
+    if (candle) {
+      candle.high = Math.max(candle.high, kline.high);
+      candle.low = Math.min(candle.low, kline.low);
+      candle.close = kline.close;
+      candle.volume += kline.volume || 0;
+    } else {
+      buckets.set(bucketTime, {
+        time: bucketTime,
+        open: kline.open,
+        high: kline.high,
+        low: kline.low,
+        close: kline.close,
+        volume: kline.volume || 0,
+      });
+    }
+  }
+  return Array.from(buckets.values());
+}
+
 /**
  * Replay-mode data feed for a pane. Loads a window of history once, then reveals
  * candles with time <= the global wall-clock so all panes stay time-aligned.
@@ -48,9 +78,14 @@ export function replayFetchEnd(targetDate, interval, limit = replayLimit(interva
 export function useReplayData({ paneId, source, symbol, interval, enabled, chartRef, ready, onPrice, onLoading, onError, coverSince }) {
   const { clock, targetDate, endTs, registerPane, unregisterPane } = useReplay();
   const activeTargetDate = targetDate ?? endTs;
-  const previousIntervalRef = useRef(interval);
-  const isTimeframeSwitch = previousIntervalRef.current !== interval;
-  previousIntervalRef.current = interval;
+  const previousConfigRef = useRef({ source, symbol, interval });
+  const previousConfig = previousConfigRef.current;
+  const isTimeframeSwitch = previousConfig.interval !== interval;
+  const isSameInstrumentTimeframeSwitch = isTimeframeSwitch
+    && previousConfig.source === source
+    && previousConfig.symbol === symbol;
+  const previousInterval = previousConfig.interval;
+  previousConfigRef.current = { source, symbol, interval };
   const clockRef = useRef(clock);
   clockRef.current = clock;
   // Always anchor the fetch window on the current clock when it is available.
@@ -77,6 +112,17 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
     (async () => {
       onLoading?.(true);
       try {
+        // For a coarser timeframe, the already-visible bars can provide an
+        // immediate approximate view while the authoritative Databento request
+        // is in flight. Only aggregate exact interval multiples; finer switches
+        // cannot be reconstructed without inventing OHLC data.
+        if (isSameInstrumentTimeframeSwitch) {
+          const existing = chartRef.current?.getDataList?.() ?? [];
+          const provisional = aggregateKlines(existing, interval, previousInterval, clockRef.current);
+          if (provisional.length) {
+            try { chartRef.current?.applyNewData(provisional.map(toKline)); } catch {}
+          }
+        }
         // Load the coordinated replay window centred on fetchAnchor — the current
         // clock position if the user has played forward past the original targetDate,
         // otherwise the original targetDate. This ensures the fetched window always
