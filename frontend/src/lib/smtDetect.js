@@ -9,7 +9,23 @@
 // adjacent swings on the main series that diverge from the correlate.
 
 const SWING_WINDOW = 3;   // a candle is a swing if it's the extreme within ±3
-const MAX_TIME_DIFF = 24 * 60 * 60; // correlate swing must land within 24h of main's
+const DEFAULT_TIME_DIFF = 60;
+
+function swingMatchTolerance(...series) {
+  const deltas = [];
+  for (const candles of series) {
+    for (let i = 1; i < candles.length; i++) {
+      const delta = candles[i].time - candles[i - 1].time;
+      if (delta > 0) deltas.push(delta);
+    }
+  }
+  if (!deltas.length) return DEFAULT_TIME_DIFF;
+  deltas.sort((a, b) => a - b);
+  const cadence = deltas[Math.floor(deltas.length / 2)];
+  // Permit small timestamp differences, but don't match a minute pivot to a
+  // different swing many hours away just because it is the nearest available.
+  return Math.max(DEFAULT_TIME_DIFF, cadence * 3);
+}
 
 /** Return {highs, lows} — arrays of {time, price} for the extreme points. */
 export function findSwings(candles, window = SWING_WINDOW, confirmationWindow = window) {
@@ -32,7 +48,7 @@ export function findSwings(candles, window = SWING_WINDOW, confirmationWindow = 
   return { highs, lows };
 }
 
-function findClosest(list, targetTime, tolerance = MAX_TIME_DIFF) {
+function findClosest(list, targetTime, tolerance = DEFAULT_TIME_DIFF) {
   let best = null;
   let bestDiff = Infinity;
   for (const s of list) {
@@ -61,6 +77,7 @@ export function detectDivergences(mainCandles, correlateCandles) {
   if (!Array.isArray(mainCandles) || !Array.isArray(correlateCandles)) return [];
   if (mainCandles.length < 2 * SWING_WINDOW + 2) return [];
   if (correlateCandles.length < 2 * SWING_WINDOW + 2) return [];
+  const matchTolerance = swingMatchTolerance(mainCandles, correlateCandles);
 
   // SMT must be visible as soon as a candle makes a fresh local extreme. A
   // symmetric window waits for three future candles to confirm each pivot,
@@ -77,8 +94,8 @@ export function detectDivergences(mainCandles, correlateCandles) {
     for (let i = list.length - 1; i >= 1; i--) {
       const curr = list[i];
       const prev = list[i - 1];
-      const corCurr = findClosest(corSwings[kind], curr.time);
-      const corPrev = findClosest(corSwings[kind], prev.time);
+      const corCurr = findClosest(corSwings[kind], curr.time, matchTolerance);
+      const corPrev = findClosest(corSwings[kind], prev.time, matchTolerance);
       if (!corCurr || !corPrev) continue;
 
       // 1 = higher, -1 = lower, compared prev → curr
