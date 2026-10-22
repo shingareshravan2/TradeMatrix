@@ -4,13 +4,18 @@ export async function fetchSources() {
   return res.json();
 }
 
-import { cachedFetch } from "./apiCache";
+import { cachedFetch, readCandleSnapshot, writeCandleSnapshot } from "./apiCache";
+
+export function readInitialCandleSnapshot(source, symbol, interval, limit = 500) {
+  const params = new URLSearchParams({ source, symbol, interval, limit });
+  return readCandleSnapshot(params.toString());
+}
 
 export async function fetchCandles(source, symbol, interval, limit = 500, end, onFresh) {
   const params = new URLSearchParams({ source, symbol, interval, limit });
   if (end != null) params.set("end", end);
   const key = params.toString();
-  return cachedFetch(key, end != null, async () => {
+  const candles = await cachedFetch(key, end != null, async () => {
     const res = await fetch(`/api/candles?${params}`);
     if (!res.ok) {
       const body = await res.text();
@@ -21,7 +26,10 @@ export async function fetchCandles(source, symbol, interval, limit = 500, end, o
       throw new Error(`failed to load candles: ${res.status}${detail ? ` - ${detail}` : ""}`);
     }
     return res.json();
-  }, onFresh);
+  });
+  if (end == null && limit === 500) writeCandleSnapshot(key, candles);
+  onFresh?.(candles);
+  return candles;
 }
 
 // Omit `source` to search across all sources at once.

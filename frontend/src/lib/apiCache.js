@@ -5,17 +5,17 @@
 //   2. Concurrent identical lookups share a single inflight promise (dedup).
 //   3. Historical windows (`end` set) get a longer TTL — that data can't change.
 //
-// The earlier version persisted results to localStorage to survive refreshes.
-// That layer proved fragile: any transient backend error, malformed response,
-// or partial write left a stuck blob that hydrated on next load and blocked
-// fresh fetches from painting. Ripped out — every fresh page load now goes to
-// the network cleanly. The tradeoff is a small delay on refresh (Databento
-// cold ~6s, Hyperliquid <1s), which is preferable to "chart not loading" from
-// stale cache.
+// A small, validated snapshot of the latest chart window is also persisted so
+// a refresh can paint recent bars before a slow source responds. It is only a
+// provisional display: callers still fetch from the backend, and bad/expired
+// snapshots are ignored rather than blocking fresh data.
 
 const LIVE_TTL_MS = 60_000; // "latest" fetches — good for a minute
 const PAST_TTL_MS = 24 * 60 * 60 * 1000; // fetches with explicit past `end` — historical
 const MAX_ENTRIES = 120;
+const SNAPSHOT_KEY = "tm:candleSnapshots:v1";
+const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const SNAPSHOT_MAX_ENTRIES = 12;
 
 const store = new Map(); // key -> { promise, expiresAt }
 
@@ -31,8 +31,54 @@ function evictIfNeeded() {
   }
 }
 
-// Wipe any leftover persisted-cache blobs from earlier versions of this
-// module so they don't take up localStorage space or confuse the user.
+function isCandle(value) {
+  return value != null &&
+    Number.isFinite(value.time) &&
+    Number.isFinite(value.open) &&
+    Number.isFinite(value.high) &&
+    Number.isFinite(value.low) &&
+    Number.isFinite(value.close) &&
+    Number.isFinite(value.volume);
+}
+
+function readSnapshots() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function readCandleSnapshot(key) {
+  const now = Date.now();
+  const entry = readSnapshots().find((item) =>
+    item?.key === key &&
+    Number.isFinite(item.savedAt) &&
+    item.savedAt <= now &&
+    now - item.savedAt <= SNAPSHOT_MAX_AGE_MS &&
+    Array.isArray(item.candles) &&
+    item.candles.length > 0 &&
+    item.candles.length <= 500 &&
+    item.candles.every(isCandle)
+  );
+  return entry ? entry.candles : null;
+}
+
+export function writeCandleSnapshot(key, candles) {
+  if (!Array.isArray(candles) || !candles.length || candles.length > 500 || !candles.every(isCandle)) {
+    return;
+  }
+  try {
+    const snapshots = readSnapshots().filter((item) => item?.key !== key);
+    snapshots.unshift({ key, savedAt: Date.now(), candles });
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots.slice(0, SNAPSHOT_MAX_ENTRIES)));
+  } catch {
+    // Browser storage is an optional optimization; network loading remains authoritative.
+  }
+}
+
+// Wipe blobs from the earlier, unvalidated persisted-cache implementation.
 try {
   localStorage.removeItem("tm:apiCache:v1");
   localStorage.removeItem("tm:apiCache:v2");
@@ -49,7 +95,7 @@ try {
  * On error the entry is dropped so a retry actually hits the network again
  * instead of caching the failure.
  */
-export async function cachedFetch(key, hasEnd, loader, _onRevalidate) {
+export async function cachedFetch(key, hasEnd, loader) {
   const now = Date.now();
   const hit = store.get(key);
   if (hit && hit.expiresAt > now) {

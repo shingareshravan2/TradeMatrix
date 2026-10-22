@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { fetchCandles } from "../lib/api";
+import { fetchCandles, readInitialCandleSnapshot } from "../lib/api";
 import { useStream } from "../ws/StreamProvider";
 
 // Keep the initial load fast; scroll-back lazy-load pulls deeper history on demand.
@@ -23,10 +23,23 @@ export function useCandleStream({ paneId, source, symbol, interval, enabled = tr
 
     async function init() {
       onLoading?.(true);
+      const snapshot = readInitialCandleSnapshot(source, symbol, interval, INITIAL_BARS);
       try {
-        const history = await fetchCandles(source, symbol, interval, INITIAL_BARS);
+        if (snapshot) onHistory?.(snapshot);
+        const history = await fetchCandles(
+          source,
+          symbol,
+          interval,
+          INITIAL_BARS,
+          undefined,
+          snapshot ? (fresh) => {
+            if (cancelled) return;
+            onHistory?.(fresh);
+            onError?.(null);
+          } : undefined
+        );
         if (cancelled) return;
-        onHistory?.(history);
+        if (!snapshot) onHistory?.(history);
         onError?.(null);
 
         subscribe(paneId, { source, symbol, interval }, (msg) => {
