@@ -152,7 +152,10 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           if (needBars > limit) limit = Math.min(MAX_REPLAY_BARS, needBars);
         }
         const completeLimit = limit;
-        const initialLimit = isTimeframeSwitch
+        // Databento replay windows can require large underlying 1m requests for
+        // resampled intervals. Paint a small initial slice first, then expand it
+        // in the background so the chart becomes usable before the full fetch ends.
+        const initialLimit = (isTimeframeSwitch || source === "databento")
           ? Math.min(completeLimit, REPLAY_SWITCH_INITIAL_BARS)
           : completeLimit;
         const initialEnd = initialLimit < completeLimit
