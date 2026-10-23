@@ -5,10 +5,10 @@
 //   2. Concurrent identical lookups share a single inflight promise (dedup).
 //   3. Historical windows (`end` set) get a longer TTL — that data can't change.
 //
-// A small, validated snapshot of the latest chart window is also persisted so
-// a refresh can paint recent bars before a slow source responds. It is only a
-// provisional display: callers still fetch from the backend, and bad/expired
-// snapshots are ignored rather than blocking fresh data.
+// Small, validated snapshots of initial chart windows are also persisted so a
+// refresh or replay can paint bars before a slow source responds. They are only
+// provisional: callers still fetch from the backend, and bad/expired snapshots
+// are ignored rather than blocking fresh data.
 
 const LIVE_TTL_MS = 60_000; // "latest" fetches — good for a minute
 const PAST_TTL_MS = 24 * 60 * 60 * 1000; // fetches with explicit past `end` — historical

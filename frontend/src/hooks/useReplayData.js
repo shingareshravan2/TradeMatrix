@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchCandles } from "../lib/api";
+import { fetchCandles, readInitialCandleSnapshot } from "../lib/api";
 import { toKline, INTERVAL_SECONDS } from "../lib/kline";
 import { useReplay } from "../replay/ReplayProvider";
 
@@ -70,6 +70,18 @@ function aggregateKlines(klines, interval, previousInterval, clock) {
   return Array.from(buckets.values());
 }
 
+function sameCandles(left, right) {
+  return left.length === right.length && left.every((candle, index) => {
+    const other = right[index];
+    return candle.time === other.time &&
+      candle.open === other.open &&
+      candle.high === other.high &&
+      candle.low === other.low &&
+      candle.close === other.close &&
+      candle.volume === other.volume;
+  });
+}
+
 /**
  * Replay-mode data feed for a pane. Loads a window of history once, then reveals
  * candles with time <= the global wall-clock so all panes stay time-aligned.
@@ -111,6 +123,7 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
     let cancelled = false;
     (async () => {
       onLoading?.(true);
+      let hadSnapshot = false;
       try {
         // For a coarser timeframe, the already-visible bars can provide an
         // immediate approximate view while the authoritative Databento request
@@ -161,18 +174,6 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
         const initialEnd = initialLimit < completeLimit
           ? replayFetchEnd(fetchAnchor, interval, initialLimit)
           : fetchEnd;
-        const cs = await fetchCandles(source, symbol, interval, initialLimit, initialEnd);
-        if (cancelled) return;
-        if (!cs.length) {
-          dataRef.current = [];
-          try { chartRef.current?.applyNewData([]); } catch {}
-          onError?.(source === "yfinance"
-            ? `Yahoo Finance has no ${interval} candles for ${symbol} in this replay window. Intraday history is limited; try a more recent date, a coarser interval, or a source with deeper history.`
-            : `No candles returned for ${symbol} ${interval}`);
-          setVersion((v) => v + 1);
-          return;
-        }
-        onError?.(null);
         const publishData = (candles, expand = false) => {
           if (expand && dataRef.current.length) {
             const chart = chartRef.current;
@@ -229,7 +230,52 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           });
           setVersion((v) => v + 1);
         };
-        publishData(cs);
+        const cachedSnapshot = readInitialCandleSnapshot(
+          source, symbol, interval, initialLimit, initialEnd
+        );
+        const canReuseChartData = source === "databento" &&
+          initialEnd == null &&
+          previousConfig.source === source &&
+          previousConfig.symbol === symbol &&
+          previousConfig.interval === interval;
+        const chartData = canReuseChartData
+          ? (chartRef.current?.getDataList?.() ?? []).map((candle) => ({
+              time: Math.floor(candle.timestamp / 1000),
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              volume: candle.volume ?? 0,
+            })).filter((candle) =>
+              Number.isFinite(candle.time) &&
+              Number.isFinite(candle.open) &&
+              Number.isFinite(candle.high) &&
+              Number.isFinite(candle.low) &&
+              Number.isFinite(candle.close)
+            ).slice(-initialLimit)
+          : [];
+        const snapshot = cachedSnapshot ?? (chartData.length ? chartData : null);
+        if (snapshot) {
+          hadSnapshot = true;
+          publishData(snapshot);
+          onLoading?.(false);
+        }
+
+        const cs = await fetchCandles(source, symbol, interval, initialLimit, initialEnd);
+        if (cancelled) return;
+        if (!cs.length) {
+          if (!snapshot) {
+            dataRef.current = [];
+            try { chartRef.current?.applyNewData([]); } catch {}
+            setVersion((v) => v + 1);
+          }
+          onError?.(source === "yfinance"
+            ? `Yahoo Finance has no ${interval} candles for ${symbol} in this replay window. Intraday history is limited; try a more recent date, a coarser interval, or a source with deeper history.`
+            : `No candles returned for ${symbol} ${interval}`);
+          return;
+        }
+        onError?.(null);
+        if (!snapshot || !sameCandles(snapshot, cs)) publishData(cs);
 
         if (initialLimit < completeLimit) {
           // Let the initial window reach the chart before expanding it, so the
@@ -246,7 +292,7 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
             });
         }
       } catch (err) {
-        dataRef.current = [];
+        if (!hadSnapshot) dataRef.current = [];
         if (!cancelled) onError?.(err.message || String(err));
       } finally {
         if (!cancelled) onLoading?.(false);

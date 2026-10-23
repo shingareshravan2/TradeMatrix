@@ -6,8 +6,9 @@ export async function fetchSources() {
 
 import { cachedFetch, readCandleSnapshot, writeCandleSnapshot } from "./apiCache";
 
-export function readInitialCandleSnapshot(source, symbol, interval, limit = 500) {
+export function readInitialCandleSnapshot(source, symbol, interval, limit = 500, end) {
   const params = new URLSearchParams({ source, symbol, interval, limit });
+  if (end != null) params.set("end", end);
   return readCandleSnapshot(params.toString());
 }
 
@@ -27,7 +28,7 @@ export async function fetchCandles(source, symbol, interval, limit = 500, end, o
     }
     return res.json();
   });
-  if (end == null && limit === 500) writeCandleSnapshot(key, candles);
+  if (limit <= 500) writeCandleSnapshot(key, candles);
   onFresh?.(candles);
   return candles;
 }
