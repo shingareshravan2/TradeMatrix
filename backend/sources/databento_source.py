@@ -327,6 +327,24 @@ class DatabentoSource(DataSource):
         self._dirty = True
         return candles
 
+    def _recent_cached_window(
+        self, symbol: str, schema: str, end_s: int
+    ) -> list[Candle] | None:
+        """Find recent native bars usable for an initial latest-window chart load."""
+        with self._cache_lock:
+            candidates = [
+                candles
+                for (cached_symbol, cached_schema, _, _), candles in self._cache.items()
+                if cached_symbol == symbol
+                and cached_schema == schema
+                and candles
+                and end_s - candles[-1].time <= 7 * 86400
+                and candles[-1].time <= end_s + 60
+            ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda candles: (candles[-1].time, len(candles)))
+
     async def get_candles(
         self, symbol: str, interval: str, limit: int = 500, end: int | None = None
     ) -> list[Candle]:
@@ -367,7 +385,16 @@ class DatabentoSource(DataSource):
             window = max(wanted, min_window) if sec < 86400 else wanted + 86400
         start_s = end_s - window
 
-        candles = await self._fetch_window_coalesced(symbol, schema, start_s, end_s)
+        # A just-warmed native window can satisfy an initial chart request even
+        # when it is shorter than the requested lookback. This avoids blocking a
+        # timeframe switch on another upstream call; scroll-back still requests
+        # the missing history with an explicit `end`.
+        cached_recent = (
+            self._recent_cached_window(symbol, schema, end_s)
+            if end is None
+            else None
+        )
+        candles = cached_recent or await self._fetch_window_coalesced(symbol, schema, start_s, end_s)
         if interval == "1m" and len(candles) < limit and window < _ONE_MINUTE_FALLBACK_WINDOW:
             start_s = end_s - _ONE_MINUTE_FALLBACK_WINDOW
             candles = await self._fetch_window_coalesced(symbol, schema, start_s, end_s)

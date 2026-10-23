@@ -23,12 +23,10 @@ if not _prefetch_log.handlers:
 
 async def _prefetch_databento() -> None:
     """Warm the Databento cache for the curated futures so the first user click on
-    each doesn't pay the cold-fetch latency. Runs 4 requests concurrently with a
-    semaphore — the old sequential-with-250ms-pause path took ~2 minutes to warm
-    27 requests, which meant users hitting the app immediately after boot always
-    paid the cold cost. 4 concurrent keeps under the trial-tier rate limits in
-    practice and cuts total warmup to ~30s. Idempotent — piggybacks on the
-    source's own cache + disk persistence."""
+    each doesn't pay the cold-fetch latency. Match the chart's 500-bar initial
+    requests so these fetches actually warm the windows the UI asks for. Runs
+    four requests concurrently to stay under the trial-tier rate limits. Idempotent
+    — piggybacks on the source's own cache + disk persistence."""
     try:
         from sources.databento_source import DatabentoSource, _SYMBOLS
     except Exception as exc:
@@ -39,9 +37,10 @@ async def _prefetch_databento() -> None:
         _prefetch_log.info("Databento client not configured — skipping prefetch")
         return
 
-    # Prefetch native schemas: 1m warms 1m/3m/30m via the envelope, 1h warms 1h/4h
-    # via its envelope, and 5m/15m use their own narrower windows.
-    intervals = ("1m", "1h", "1d")
+    # Warm the chart's initial windows for common chart intervals. These must use
+    # the UI's initial 500-bar limit; larger requests create different cache keys
+    # and needlessly fetch much deeper history before the first chart is opened.
+    intervals = ("1m", "15m", "1h", "1d")
     jobs = [(entry["symbol"], iv) for entry in _SYMBOLS for iv in intervals]
     total = len(jobs)
     sem = asyncio.Semaphore(4)  # cap concurrency at 4 to stay under trial-tier limits
@@ -51,7 +50,7 @@ async def _prefetch_databento() -> None:
         nonlocal done
         async with sem:
             try:
-                candles = await src.get_candles(sym, iv, limit=1500)
+                candles = await src.get_candles(sym, iv, limit=500)
                 done += 1
                 _prefetch_log.info(
                     "PREFETCH ok %s %s (%d/%d) rows=%d", sym, iv, done, total, len(candles)
