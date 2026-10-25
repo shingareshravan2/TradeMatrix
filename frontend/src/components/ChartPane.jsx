@@ -13,6 +13,7 @@ import { registerPositionOverlays } from "../lib/positionOverlay";
 import { registerFibonacciOverlay } from "../lib/fibonacciOverlay";
 import { registerTrendLineOverlay } from "../lib/trendLineOverlay";
 import { registerDatePriceRangeOverlay } from "../lib/datePriceRangeOverlay";
+import { registerRectangleOverlay } from "../lib/rectangleOverlay";
 import { setPaneTimeCtx, clearPaneTimeCtx, fillMissingAnchorTimes } from "../lib/overlayTimeCtx";
 import { registerSmtOverlay } from "../lib/smtOverlay";
 import { detectDivergences } from "../lib/smtDetect";
@@ -30,6 +31,7 @@ registerPositionOverlays();
 registerFibonacciOverlay();
 registerTrendLineOverlay();
 registerDatePriceRangeOverlay();
+registerRectangleOverlay();
 registerSmtOverlay();
 registerPspIndicator();
 
@@ -57,7 +59,7 @@ const DRAW_TOOLS = [
   { id: "horizontalStraightLine", label: "Horizontal line" },
   { id: "rayLine", label: "Ray line" },
   { id: "priceLine", label: "Price line" },
-  { id: "rect", label: "Rectangle" },
+  { id: "rectangle", label: "Rectangle" },
 ];
 
 // Direct-action toolbar buttons for the R:R-aware trader tools. Each is a
