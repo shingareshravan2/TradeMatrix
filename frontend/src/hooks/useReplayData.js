@@ -165,12 +165,10 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
           if (needBars > limit) limit = Math.min(MAX_REPLAY_BARS, needBars);
         }
         const completeLimit = limit;
-        // Databento replay windows can require large underlying 1m requests for
-        // resampled intervals. Paint a small initial slice first, then expand it
-        // in the background so the chart becomes usable before the full fetch ends.
-        const initialLimit = (isTimeframeSwitch || source === "databento")
-          ? Math.min(completeLimit, REPLAY_SWITCH_INITIAL_BARS)
-          : completeLimit;
+        // Paint a small initial slice first, then expand it in the background.
+        // This avoids making chart usability depend on the full replay-window fetch
+        // for any source, not just Databento's slower resampled intervals.
+        const initialLimit = Math.min(completeLimit, REPLAY_SWITCH_INITIAL_BARS);
         const initialEnd = initialLimit < completeLimit
           ? replayFetchEnd(fetchAnchor, interval, initialLimit)
           : fetchEnd;
@@ -233,8 +231,7 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
         const cachedSnapshot = readInitialCandleSnapshot(
           source, symbol, interval, initialLimit, initialEnd
         );
-        const canReuseChartData = source === "databento" &&
-          initialEnd == null &&
+        const canReuseChartData = initialEnd == null &&
           previousConfig.source === source &&
           previousConfig.symbol === symbol &&
           previousConfig.interval === interval;
