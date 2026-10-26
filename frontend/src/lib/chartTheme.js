@@ -2,8 +2,8 @@
 const GRID = "#21262d";
 const AXIS = "#2a3038";
 const TEXT = "#8b949e";
-const UP = "#26a69a";
-const DOWN = "#ef5350";
+const UP = "#4caf50";
+const DOWN = "#ffee58";
 
 export const CHART_STYLES = {
   grid: {
