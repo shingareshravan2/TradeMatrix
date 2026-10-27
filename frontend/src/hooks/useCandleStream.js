@@ -3,10 +3,9 @@ import { fetchCandles, readInitialCandleSnapshot } from "../lib/api";
 import { useStream } from "../ws/StreamProvider";
 
 // Keep the initial load fast; scroll-back lazy-load pulls deeper history on demand.
-// 500 gives the chart plenty to render on first paint (a few days of intraday) and
-// scroll-back adds 500 more per batch. Was 1500 — dropping it cut typical Hyperliquid
-// first-paint by ~2-3x and shaved Databento response-parse time noticeably.
-const INITIAL_BARS = 500;
+// 300 bars is enough context for first paint while keeping cold Databento windows
+// smaller. Scroll-back continues to fetch 500 more bars per batch.
+const INITIAL_BARS = 300;
 
 /**
  * Loads historical candles, then subscribes to live updates for this pane.
@@ -25,7 +24,10 @@ export function useCandleStream({ paneId, source, symbol, interval, enabled = tr
       onLoading?.(true);
       const snapshot = readInitialCandleSnapshot(source, symbol, interval, INITIAL_BARS);
       try {
-        if (snapshot) onHistory?.(snapshot);
+        if (snapshot) {
+          onHistory?.(snapshot);
+          onLoading?.(false);
+        }
         const history = await fetchCandles(
           source,
           symbol,

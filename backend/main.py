@@ -23,7 +23,7 @@ if not _prefetch_log.handlers:
 
 async def _prefetch_databento() -> None:
     """Warm the Databento cache for the curated futures so the first user click on
-    each doesn't pay the cold-fetch latency. Match the chart's 500-bar initial
+    each doesn't pay the cold-fetch latency. Match the chart's 300-bar initial
     requests so these fetches actually warm the windows the UI asks for. Runs
     four requests concurrently to stay under the trial-tier rate limits. Idempotent
     — piggybacks on the source's own cache + disk persistence."""
@@ -38,7 +38,7 @@ async def _prefetch_databento() -> None:
         return
 
     # Warm the chart's initial windows for common chart intervals. These must use
-    # the UI's initial 500-bar limit; larger requests create different cache keys
+    # the UI's initial 300-bar limit; larger requests create different cache keys
     # and needlessly fetch much deeper history before the first chart is opened.
     intervals = ("1m", "15m", "1h", "1d")
     jobs = [(entry["symbol"], iv) for entry in _SYMBOLS for iv in intervals]
@@ -50,7 +50,7 @@ async def _prefetch_databento() -> None:
         nonlocal done
         async with sem:
             try:
-                candles = await src.get_candles(sym, iv, limit=500)
+                candles = await src.get_candles(sym, iv, limit=300)
                 done += 1
                 _prefetch_log.info(
                     "PREFETCH ok %s %s (%d/%d) rows=%d", sym, iv, done, total, len(candles)

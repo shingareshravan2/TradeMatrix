@@ -89,7 +89,7 @@ Provider nesting in `App.jsx`: `StreamProvider` → `ReplayProvider` → `Tradin
 cisd, psp}`), `tm:sizes` (per-layout grid tracks), `tm:account`, `tm:replayBarPos`.
 
 **Live and replay are two mutually exclusive feeds into the same chart instance.** `useCandleStream`
-(`enabled: !isReplay`) loads 500 bars then subscribes to the websocket; `useReplayData`
+(`enabled: !isReplay`) loads 300 bars then subscribes to the websocket; `useReplayData`
 (`enabled: isReplay`) loads one coordinated window and reveals bars as the clock advances. A pane's
 chart object is created once by `useChart` and shared by both.
 
