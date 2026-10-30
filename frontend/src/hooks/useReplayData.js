@@ -231,10 +231,16 @@ export function useReplayData({ paneId, source, symbol, interval, enabled, chart
         const cachedSnapshot = readInitialCandleSnapshot(
           source, symbol, interval, initialLimit, initialEnd
         );
-        const canReuseChartData = initialEnd == null &&
+        const switchingTimeframe = isTimeframeSwitch &&
           previousConfig.source === source &&
-          previousConfig.symbol === symbol &&
-          previousConfig.interval === interval;
+          previousConfig.symbol === symbol;
+        // Replay windows are usually historical and have an explicit `end`, so
+        // the old chart-data fast path must not be limited to latest/live loads.
+        // Reusing the current instrument's bars makes a timeframe switch paint
+        // immediately; the authoritative request below replaces them when ready.
+        const canReuseChartData = (initialEnd == null || switchingTimeframe) &&
+          previousConfig.source === source &&
+          previousConfig.symbol === symbol;
         const chartData = canReuseChartData
           ? (chartRef.current?.getDataList?.() ?? []).map((candle) => ({
               time: Math.floor(candle.timestamp / 1000),

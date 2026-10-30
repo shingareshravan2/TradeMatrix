@@ -345,6 +345,22 @@ class DatabentoSource(DataSource):
             return None
         return max(candidates, key=lambda candles: (candles[-1].time, len(candles)))
 
+    def _cached_window_covering(
+        self, symbol: str, schema: str, start_s: int, end_s: int
+    ) -> list[Candle] | None:
+        """Return cached native bars covering a replay window, if available."""
+        with self._cache_lock:
+            candidates = []
+            for (cached_symbol, cached_schema, cached_start, cached_end), candles in self._cache.items():
+                if cached_symbol != symbol or cached_schema != schema or not candles:
+                    continue
+                if cached_start <= start_s and cached_end >= end_s:
+                    candidates.append((cached_start, cached_end, candles))
+        if not candidates:
+            return None
+        _, _, candles = max(candidates, key=lambda candidate: candidate[1])
+        return [candle for candle in candles if start_s <= candle.time <= end_s]
+
     async def get_candles(
         self, symbol: str, interval: str, limit: int = 500, end: int | None = None
     ) -> list[Candle]:
@@ -394,7 +410,12 @@ class DatabentoSource(DataSource):
             if end is None
             else None
         )
-        candles = cached_recent or await self._fetch_window_coalesced(symbol, schema, start_s, end_s)
+        cached_historical = (
+            self._cached_window_covering(symbol, schema, start_s, end_s)
+            if end is not None
+            else None
+        )
+        candles = cached_recent or cached_historical or await self._fetch_window_coalesced(symbol, schema, start_s, end_s)
         if interval == "1m" and len(candles) < limit and window < _ONE_MINUTE_FALLBACK_WINDOW:
             start_s = end_s - _ONE_MINUTE_FALLBACK_WINDOW
             candles = await self._fetch_window_coalesced(symbol, schema, start_s, end_s)
